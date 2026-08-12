@@ -1,5 +1,6 @@
 #include "../../include/llaisys/models/qwen2.h"
 #include "../../include/llaisys/ops.h"
+#include "../../include/llaisys/runtime.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -597,6 +598,14 @@ int64_t llaisysQwen2ModelInfer(
     const auto dtype = meta.dtype;
     const auto device = model->device;
     const int device_id = model->device_id;
+
+    const LlaisysRuntimeAPI *runtime =
+        llaisysGetRuntimeAPI(device);
+
+    if (runtime == nullptr) {
+        throw std::runtime_error(
+            "llaisysQwen2ModelInfer: failed to get runtime API");
+    }
     /*
      * --------------------------------------------------------
      * 1. token ids
@@ -845,11 +854,6 @@ int64_t llaisysQwen2ModelInfer(
          * [past_len, past_len + N)
          * ----------------------------------------------------
          */
-        if (device != LLAISYS_DEVICE_CPU) {
-            throw std::runtime_error(
-                "Qwen2 KV cache copy currently only supports CPU");
-        }
-
         const size_t element_size =
             qwen2_dtype_size(dtype);
 
@@ -877,17 +881,24 @@ int64_t llaisysQwen2ModelInfer(
             reinterpret_cast<const std::byte *>(
                 tensorGetData(v));
 
-        std::memcpy(
+        const llaisysMemcpyKind_t kv_copy_kind =
+            (device == LLAISYS_DEVICE_CPU)
+                ? LLAISYS_MEMCPY_H2H
+                : LLAISYS_MEMCPY_D2D;
+
+        runtime->memcpy_sync(
             k_cache_ptr +
                 model->past_len * one_token_kv_bytes,
             new_k_ptr,
-            new_kv_bytes);
+            new_kv_bytes,
+            kv_copy_kind);
 
-        std::memcpy(
+        runtime->memcpy_sync(
             v_cache_ptr +
                 model->past_len * one_token_kv_bytes,
             new_v_ptr,
-            new_kv_bytes);
+            new_kv_bytes,
+            kv_copy_kind);
 
         /*
          * 当前层 Attention 使用：
@@ -1245,26 +1256,18 @@ int64_t llaisysQwen2ModelInfer(
         max_idx,
         max_val,
         logits);
-    /*
-     * 第一版目前只跑 CPU。
-     *
-     * max_idx 在 CPU 时，
-     * 可以直接读取。
-     */
     int64_t next_token = 0;
-    if (device == LLAISYS_DEVICE_CPU) {
-        next_token =
-            *reinterpret_cast<int64_t *>(
-                tensorGetData(max_idx));
-    } else {
-        /*
-         * NVIDIA 版本以后可以通过 Tensor::to / memcpy D2H
-         * 处理。
-         */
-        throw std::runtime_error(
-            "llaisysQwen2ModelInfer: non-CPU "
-            "argmax result copy is not implemented");
-    }
+
+    const llaisysMemcpyKind_t token_copy_kind =
+        (device == LLAISYS_DEVICE_CPU)
+            ? LLAISYS_MEMCPY_H2H
+            : LLAISYS_MEMCPY_D2H;
+
+    runtime->memcpy_sync(
+        &next_token,
+        tensorGetData(max_idx),
+        sizeof(next_token),
+        token_copy_kind);
     /*
      * ========================================================
      * Cleanup

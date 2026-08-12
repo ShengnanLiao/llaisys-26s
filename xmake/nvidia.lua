@@ -50,3 +50,48 @@ target("llaisys-device-nvidia")
 
     on_install(function (target) end)
 target_end()
+target("llaisys-ops-nvidia")
+    set_kind("static")
+
+    set_policy("build.cuda.devlink", true)
+
+    add_deps("llaisys-tensor")
+    add_deps("llaisys-device-nvidia")
+
+    set_languages("cxx17")
+
+    add_files("../src/ops/*/nvidia/*.cu")
+
+    add_cugencodes("sm_75")
+
+    if is_plat("linux") then
+        add_includedirs(
+            "/usr/local/cuda/include",
+            {public = true}
+        )
+
+        add_linkdirs(
+            "/usr/local/cuda/lib64",
+            {public = true}
+        )
+
+        add_syslinks(
+            "cudart",
+            {public = true}
+        )
+
+        add_cuflags(
+            "-Xcompiler",
+            "-fPIC",
+            {force = true}
+        )
+
+        add_culdflags(
+            "-Xcompiler",
+            "-fPIC",
+            {force = true}
+        )
+    end
+
+    on_install(function (target) end)
+target_end()
