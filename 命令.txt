@@ -1,0 +1,20 @@
+export OMP_NUM_THREADS=12
+export OMP_PROC_BIND=close
+export OMP_PLACES=cores
+python test/test_infer.py \
+    --device cpu \
+    --model /root/autodl-tmp/llaisys/DeepSeek-R1-Distill-Qwen-1.5B \
+    --prompt "Hello" \
+    --test
+
+
+12 threads:  3.13 s   
+24 threads:  4.27 s
+48 threads: 12.04 s
+
+
+原始完整重算       92.05 s
+KV Cache           39.84 s
+KV + OpenMP(12)     3.13 s
+
+
