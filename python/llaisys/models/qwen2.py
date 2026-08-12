@@ -261,22 +261,54 @@ class Qwen2:
     
         tokens = list(inputs)
     
-        for _ in range(max_new_tokens):
+        if len(tokens) == 0:
+            return tokens
     
-            arr = (ctypes.c_int64 * len(tokens))(
-                *tokens
+        # =========================================================
+        # Prefill
+        #
+        # 第一次把完整 prompt 送进去。
+        # C++ 会把所有层的 K/V 写入 KV Cache。
+        # =========================================================
+        prompt_array = (
+            ctypes.c_int64 * len(tokens)
+        )(*tokens)
+    
+        next_token = (
+            LIB_LLAISYS.llaisysQwen2ModelInfer(
+                self._model,
+                prompt_array,
+                len(tokens),
             )
+        )
+    
+        next_token = int(next_token)
+        tokens.append(next_token)
+    
+        if next_token == self.meta.end_token:
+            return tokens
+    
+        # =========================================================
+        # Decode
+        #
+        # 后续每一次只输入刚刚生成的 1 个 token。
+        # 历史 K/V 已经存在 C++ 的 KV Cache 中。
+        # =========================================================
+        for _ in range(1, max_new_tokens):
+    
+            one_token = (
+                ctypes.c_int64 * 1
+            )(next_token)
     
             next_token = (
                 LIB_LLAISYS.llaisysQwen2ModelInfer(
                     self._model,
-                    arr,
-                    len(tokens),
+                    one_token,
+                    1,
                 )
             )
     
             next_token = int(next_token)
-    
             tokens.append(next_token)
     
             if next_token == self.meta.end_token:
