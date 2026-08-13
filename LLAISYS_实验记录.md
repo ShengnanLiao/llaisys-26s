@@ -210,4 +210,121 @@ GPU 加速后自研实现推理结果与参考实现完全一致。相比 CPU �
 
 ---
 
-// 后续会在天数、摩尔、沐曦卡上适配。
+
+## 天数智芯适配
+**环境** 
+GPU: Iluvatar MR-V100 32GB
+CoreX: 4.4.0
+CUDA Compatibility: 10.2
+Python: 3.10
+Xmake: 3.1.0
+
+1. 配置环境变量
+export ILUVATAR_SOFTWARE_ROOT=/usr/local/corex
+export PATH=/usr/local/corex/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/corex/lib64:/usr/local/corex/lib:$LD_LIBRARY_PATH
+export PYTHONPATH=/data/llaisys/python:$PYTHONPATH
+项目目录不是 /data/llaisys 时，需要修改 PYTHONPATH。
+
+2. 安装 Python 依赖
+python3 -m pip install safetensors transformers huggingface_hub accelerate numpy
+
+3. 清理旧编译缓存
+如果之前在 NVIDIA CUDA 环境下编译过，必须清理：
+cd /data/llaisys
+rm -rf build .xmake
+unset CUDA_HOME
+unset CUDA_PATH
+
+4. 配置 CoreX 编译
+xmake f \
+    --nv-gpu=y \
+    --iluvatar=y \
+    --cuda=/usr/local/corex \
+    --cu=/usr/local/corex/bin/clang++ \
+    -c -v
+
+关键参数：
+-x ivcore
+--cuda-path=/usr/local/corex
+--cuda-gpu-arch=ivcore11
+-std=c++17
+
+5. 编译和安装
+xmake -rv
+xmake install
+最终链接必须保留：
+-lcudart
+不要出现：
+-lcudadevrt
+
+6. 检查动态库
+ldd python/llaisys/libllaisys/libllaisys.so
+应能看到：
+libcudart.so.10.2 => /usr/local/corex/lib64/libcudart.so.10.2
+不能出现 not found。
+
+7. 测试
+
+Runtime：
+python3 test/test_runtime.py --device nvidia
+### 测试结果全部通过
+
+全部算子：
+for f in test/ops/*.py; do
+    echo "Testing $f"
+    python3 "$f" --device nvidia || break
+done
+### 测试结果全部通过
+
+Qwen2 推理：
+python3 test/test_infer.py \
+    --model ./DeepSeek-R1-Distill-Qwen-1.5B \
+    --test \
+    --device nvidia
+注意：天数智芯是编译平台适配，运行参数仍使用 --device nvidia。
+
+8. 必要注意事项
+CoreX 与 CUDA API 兼容，但 NVIDIA 编译产物不能直接复用，必须重新编译。
+Iluvatar warp size 为 64，涉及 warp 原语时不能默认按 32 线程处理。
+Device 数学运算优先使用 float、powf、expf、cosf、sinf、fmaxf。
+PyTorch 测试中的临时 Tensor、mask 必须与输入 Tensor 位于同一 device。
+推荐按 Runtime -> Ops -> Inference 顺序测试。
+
+### 最后的推理结果
+root@75be20630b23:/data/llaisys# python3 test/test_infer.py \
+>     --model ./DeepSeek-R1-Distill-Qwen-1.5B \
+>     --test \
+>     --device nvidia
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+Loading model from local path: ./DeepSeek-R1-Distill-Qwen-1.5B
+Loading weights: 100%|████████████████████████████████████████████| 339/339 [00:00<00:00, 1104.64it/s]
+
+=== Answer ===
+
+Tokens:
+Contents:
+<｜User｜>Who are you?<｜Assistant｜><think>
+Greetings! I'm DeepSeek-R1, an artificial intelligence assistant created by DeepSeek. I'm at your service and would be delighted to assist you with any inquiries or tasks you may have.
+</think>
+
+Greetings! I'm DeepSeek-R1, an artificial intelligence assistant created by DeepSeek. I'm at your service and would be delighted to assist you with any inquiries or tasks you may have.
+
+
+Time elapsed: 2.91s
+
+Loading model.safetensors
+。。。。。。。
+=== Your Result ===
+
+Contents:
+<｜User｜>Who are you?<｜Assistant｜><think>
+Greetings! I'm DeepSeek-R1, an artificial intelligence assistant created by DeepSeek. I'm at your service and would be delighted to assist you with any inquiries or tasks you may have.
+</think>
+
+Greetings! I'm DeepSeek-R1, an artificial intelligence assistant created by DeepSeek. I'm at your service and would be delighted to assist you with any inquiries or tasks you may have.
+
+
+Time elapsed: 22.99s
+
+Test passed!

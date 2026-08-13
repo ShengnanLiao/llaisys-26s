@@ -34,13 +34,12 @@ __device__ inline void rope_angle(
     float *cos_out,
     float *sin_out
 ) {
-    const float freq = static_cast<float>(
-        static_cast<double>(p) /
-        pow(
-            static_cast<double>(theta),
-            (2.0 * static_cast<double>(j)) / static_cast<double>(dim)
-        )
-    );
+    const float exponent =
+        (2.0f * static_cast<float>(j)) /
+        static_cast<float>(dim);
+
+    const float freq =
+        p / powf(theta, exponent);
 
     *cos_out = cosf(freq);
     *sin_out = sinf(freq);
